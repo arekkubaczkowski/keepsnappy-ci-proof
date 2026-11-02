@@ -24,7 +24,7 @@ A scratch repository for one question: **can a KeepSnappy verdict be trusted whe
 
 ### A note on `--wait`
 
-The job logs and result files in the iOS runs say `Verdict not computed yet`. That is not a missing verdict: the published `keepsnappy run --wait` returns when the runs are processed, and the judge computes the verdict about three minutes later. The saved file is never updated. Making `--wait` wait for the verdict is a fix in progress on the KeepSnappy side; until then, read the verdict from KeepSnappy a few minutes after the job.
+The result files saved by the runs (both platforms) say `Verdict not computed yet`. That is not a missing verdict: the published `keepsnappy run --wait` returns when the runs are processed, and the judge computes the verdict about three minutes later. The saved file is never updated. Making `--wait` wait for the verdict is a fix in progress on the KeepSnappy side; until then, read the verdict from KeepSnappy a few minutes after the job.
 
 ### What this shows, and what it does not
 
