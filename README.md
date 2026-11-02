@@ -26,7 +26,7 @@ An A/A session is a session of a build that is identical to main's. A trustworth
 The workflow starts only by hand (**Actions → proof → Run workflow**), so nobody else can start it and no secret reaches a pull request.
 
 1. Dry run (no secret needed, nothing is sent anywhere): leave *Send the runs to KeepSnappy* off.
-2. Real session: needs the repository secret `KEEPSNAPPY_KEY` (a run key of a KeepSnappy test app, never a customer's) and, for Android, the repository variable `KEEPSNAPPY_API`. Turn *Send the runs to KeepSnappy* on.
+2. Real session: needs the repository secret `KEEPSNAPPY_KEY` (a run-scope key of a KeepSnappy test app, never a customer's). Android also needs the secret `EXPO_PUBLIC_KEEPSNAPPY_KEY` (ingest scope, built into the APK, which never leaves the runner) and the repository variable `KEEPSNAPPY_API` (the public API URL). Turn *Send the runs to KeepSnappy* on.
 3. Main session: run it on `main`. A/A session: run it on a branch that differs from `main` only by an empty commit.
 
 The AI rule: `scripts/run-e2e-no-ai.sh` runs `e2e run --retries 0 --strict-cache`, then `scripts/check-report.mjs` reads `.e2e/report.json` (`report-1`) and fails the run when it holds an agent step, a model call, a retry, an unknown schema version, or no report at all. A failed command makes that run invalid in KeepSnappy.

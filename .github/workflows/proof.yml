@@ -173,10 +173,11 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Build the Release APK (x86_64) with the SDK
         env:
-          # Push mode: the Android app sends its data to the API itself, so the build carries the ingest URL and key.
+          # Push mode: the Android app sends its data to the API itself, so the build carries the ingest URL and an ingest-scope key
+          # (EXPO_PUBLIC_KEEPSNAPPY_KEY, not the run key).
           # The APK stays on this runner (it is never uploaded as an artifact).
           EXPO_PUBLIC_KEEPSNAPPY_INGEST_URL: ${{ inputs.upload && vars.KEEPSNAPPY_API || '' }}
-          EXPO_PUBLIC_KEEPSNAPPY_KEY: ${{ inputs.upload && secrets.KEEPSNAPPY_KEY || '' }}
+          EXPO_PUBLIC_KEEPSNAPPY_KEY: ${{ inputs.upload && secrets.EXPO_PUBLIC_KEEPSNAPPY_KEY || '' }}
         run: |
           set -euo pipefail
           t0=$(date +%s)
