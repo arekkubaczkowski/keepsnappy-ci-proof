@@ -61,7 +61,7 @@ jobs:
       - name: Install packages
         run: npm ci --no-audit --no-fund
       - name: Versions in use
-        run: npx e2e --version; node -p "require('@e2e-dev/mobile/package.json').version"; node -p "require('@keepsnappy/react-native/package.json').version"
+        run: npx e2e --version && npm ls --depth=0 e2e @e2e-dev/mobile @keepsnappy/react-native expo react-native
       # Booting takes a minute or two; it is done before the build so the build time is not mixed with it.
       - name: Pick and boot an iPhone simulator
         run: |
@@ -164,7 +164,7 @@ jobs:
       - name: Install packages
         run: npm ci --no-audit --no-fund
       - name: Versions in use
-        run: npx e2e --version; node -p "require('@e2e-dev/mobile/package.json').version"; node -p "require('@keepsnappy/react-native/package.json').version"
+        run: npx e2e --version && npm ls --depth=0 e2e @e2e-dev/mobile @keepsnappy/react-native expo react-native
       - name: Enable KVM for the emulator
         working-directory: .
         run: |
