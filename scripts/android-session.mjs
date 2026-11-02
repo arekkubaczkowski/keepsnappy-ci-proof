@@ -63,11 +63,19 @@ try {
     mkdirSync(dir, { recursive: true });
     adb('logcat', '-c');
     sh(`am force-stop ${a.pkg}`);
+    let activated = !tokens;
     if (tokens) {
-      // Activation takes effect from the next launch: send the link, then stop the process, so the test's own launch is the measured one.
+      // The SDK takes a settings link only in a running app (it arrives as an event; a link that starts the process is not read).
+      // So: launch the app, send the activation link into it, check logcat for the SDK's answer, then stop the process: the
+      // activation applies from the next launch, which is the test's own launch.
+      sh(`monkey -p ${a.pkg} -c android.intent.category.LAUNCHER 1`);
+      await sleep(8000);
       const link = `${route}?activate=1&ttl=3600&profile=1&diag=1&runToken=${tokens[i - 1]}`;
       sh(`am start -a android.intent.action.VIEW -d ${q(link)} ${a.pkg}`);
-      await sleep(4000);
+      for (let k = 0; k < 20 && !activated; k++) {
+        await sleep(500);
+        activated = /KEEPSNAPPY activation next-launch active=true/.test(adb('logcat', '-d'));
+      }
       sh(`am force-stop ${a.pkg}`);
     }
     const t0 = Date.now();
@@ -89,8 +97,8 @@ try {
     const sdkLines = adb('logcat', '-d').split('\n').filter((l) => /KEEPSNAPPY/i.test(l)).map((l) => l.replace(/runToken=\S+|pl_rt_\w+/g, 'runToken=<hidden>'));
     writeFileSync(join(dir, 'sdk-logcat.txt'), sdkLines.join('\n') + '\n');
     log(`${id} SDK lines: ${sdkLines.length}\n${sdkLines.slice(-25).join('\n')}`);
-    const valid = exit === 0 && (!tokens || flushed === 'ok');
-    const reason = exit !== 0 ? `test-failed: exit ${exit}` : tokens && flushed !== 'ok' ? `flush: ${flushed}` : '';
+    const valid = exit === 0 && activated && (!tokens || flushed === 'ok');
+    const reason = exit !== 0 ? `test-failed: exit ${exit}` : !activated ? 'activation link not applied' : tokens && flushed !== 'ok' ? `flush: ${flushed}` : '';
     runs.push({ run_id: id, arm: 'A', block: i - 1, t0, t1, exit_code: exit, valid, invalid_reason: reason, flushed, flush_ms: t2 - t1 });
     log(`${id} ${valid ? 'valid' : `INVALID (${reason})`} test ${((t1 - t0) / 1000).toFixed(1)} s, flush ${((t2 - t1) / 1000).toFixed(1)} s`);
     writeFileSync(join(dir, 'run.json'), JSON.stringify(runs.at(-1)) + '\n');
