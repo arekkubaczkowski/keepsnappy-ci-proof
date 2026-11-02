@@ -1,0 +1,30 @@
+{
+  "name": "keepsnappy-ci-proof-app",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "test:e2e:ios": "e2e run --target ios --retries 0 --strict-cache",
+    "test:e2e:android": "e2e run --target android --retries 0 --strict-cache"
+  },
+  "dependencies": {
+    "@expo-google-fonts/dm-mono": "0.4.2",
+    "@expo-google-fonts/inter": "0.4.2",
+    "@expo-google-fonts/stack-sans-notch": "0.4.0",
+    "@expo/metro-runtime": "57.0.16",
+    "@keepsnappy/react-native": "0.1.0-alpha.21",
+    "expo": "57.0.26",
+    "expo-build-properties": "57.0.22",
+    "expo-font": "57.0.4",
+    "expo-status-bar": "57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3"
+  },
+  "devDependencies": {
+    "@e2e-dev/mobile": "0.12.5",
+    "@types/node": "26.6.4",
+    "@types/react": "19.2.2",
+    "e2e": "0.22.0",
+    "typescript": "6.0.3"
+  }
+}

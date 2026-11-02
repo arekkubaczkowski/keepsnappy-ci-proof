@@ -1,0 +1,225 @@
+# One KeepSnappy session per job, on GitHub's free standard runners: iOS simulator (macOS) and Android emulator (Linux, KVM).
+# Manual only (workflow_dispatch): nobody else can start it, and no secret is ever handed to a pull request.
+#
+# Inputs:
+#   upload  false = dry run: build, run TesterArmy's tests wrapped by `keepsnappy run`, nothing is sent anywhere and no secret is read.
+#           true  = the same, plus `--upload --wait` with the KeepSnappy test key (repository secret KEEPSNAPPY_KEY).
+#   repeat  runs per session (the plan's number is 3).
+#   platform  ios | android | both.
+# A main session is this workflow run on the main branch. The A/A session is a run on a branch whose files are identical to main's
+# (see README), so the server compares two sessions of the same build.
+name: proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Send the runs to KeepSnappy (needs the KEEPSNAPPY_KEY secret)'
+        type: boolean
+        default: false
+      repeat:
+        description: 'Runs per session'
+        type: string
+        default: '3'
+      platform:
+        description: 'ios | android | both'
+        type: choice
+        options: [both, ios, android]
+        default: both
+
+permissions:
+  contents: read
+
+env:
+  # Pinned: TesterArmy's engine, our SDK and our CLI.
+  KEEPSNAPPY_CLI: '@keepsnappy/agent@0.1.0-alpha.25'
+  NODE_VERSION: '24'
+  # The KeepSnappy build switch: without it the build carries no SDK.
+  KEEPSNAPPY: '1'
+  E2E_TELEMETRY_DISABLED: '1'
+
+jobs:
+  ios:
+    if: ${{ inputs.platform != 'android' }}
+    runs-on: macos-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Runner facts
+        working-directory: .
+        run: |
+          echo "started $(date -u +%FT%TZ)"
+          sw_vers; sysctl -n machdep.cpu.brand_string; sysctl -n hw.ncpu; sysctl -n hw.memsize; xcodebuild -version; node -v
+      - name: Install packages
+        run: npm ci --no-audit --no-fund
+      - name: Versions in use
+        run: npx e2e --version; node -p "require('@e2e-dev/mobile/package.json').version"; node -p "require('@keepsnappy/react-native/package.json').version"
+      # Booting takes a minute or two; it is done before the build so the build time is not mixed with it.
+      - name: Pick and boot an iPhone simulator
+        run: |
+          set -euo pipefail
+          PICK="$(xcrun simctl list devices available -j | node -e '
+            const payload = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+            const runtimes = Object.entries(payload.devices)
+              .filter(([runtime]) => runtime.includes("SimRuntime.iOS-"))
+              .sort(([a], [b]) => b.localeCompare(a, undefined, { numeric: true }));
+            for (const [runtime, list] of runtimes) {
+              const pick = list.find((d) => d.name === "iPhone 16 Pro") ?? list.find((d) => d.name.startsWith("iPhone"));
+              if (pick) { process.stdout.write(`${pick.udid} ${runtime} ${pick.name}`); process.exit(0); }
+            }
+            process.exit(1);
+          ')"
+          UDID="${PICK%% *}"
+          echo "booting ${PICK#* } ($UDID)"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
+      - name: Build the Release app with the SDK
+        id: build
+        env:
+          # The key never reaches a build on iOS: the simulator's log is read from the app's data folder.
+          CI: '1'
+        run: |
+          set -euo pipefail
+          t0=$(date +%s)
+          npx expo prebuild --platform ios --no-install
+          (cd ios && pod install)
+          xcodebuild build -workspace ios/withexpo.xcworkspace -scheme withexpo -configuration Release \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 | tail -5
+          APP="$PWD/build/Build/Products/Release-iphonesimulator/withexpo.app"
+          test -d "$APP"
+          # The SDK must be in this build, or the whole session measures nothing.
+          n=$(grep -aci keepsnappy "$APP/main.jsbundle" || true)
+          echo "keepsnappy mentions in the bundle: $n"
+          test "$n" -gt 0
+          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
+          echo "build_seconds=$(( $(date +%s) - t0 ))" | tee -a "$GITHUB_OUTPUT"
+      - name: Install the app
+        run: xcrun simctl install "$SIMULATOR_UDID" "$APP_PATH"
+      - name: Install the keepsnappy CLI
+        run: npm install -g "$KEEPSNAPPY_CLI" && keepsnappy --help | head -3
+      # agent-device compiles its XCUITest runner on first use; one dry call, so the first measured run is not the one that pays for it.
+      - name: Warm the e2e runner
+        continue-on-error: true
+        run: npx e2e run --target ios --retries 0 --strict-cache
+      - name: Session (dry run, nothing is sent)
+        if: ${{ !inputs.upload }}
+        run: |
+          set -euo pipefail
+          keepsnappy run --repeat "${{ inputs.repeat }}" --device "$SIMULATOR_UDID" --out keepsnappy-out
+      - name: Session (upload and wait for the verdict)
+        if: ${{ inputs.upload }}
+        env:
+          KEEPSNAPPY_KEY: ${{ secrets.KEEPSNAPPY_KEY }}
+        run: |
+          set -euo pipefail
+          keepsnappy run --upload --wait --repeat "${{ inputs.repeat }}" --device "$SIMULATOR_UDID" --out keepsnappy-out
+      - name: Spread inside the session
+        if: ${{ always() }}
+        run: |
+          test -f keepsnappy-out/runs.ndjson || exit 0
+          node ../scripts/session-stats.mjs keepsnappy-out "ios ${GITHUB_REF_NAME} ${GITHUB_SHA::7} run ${GITHUB_RUN_ID}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Keep the raw results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-keepsnappy-out
+          path: |
+            app/keepsnappy-out
+            !app/keepsnappy-out/**/*.cpuprofile
+          retention-days: 30
+          if-no-files-found: ignore
+
+  android:
+    if: ${{ inputs.platform != 'ios' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Runner facts
+        working-directory: .
+        run: |
+          echo "started $(date -u +%FT%TZ)"
+          nproc; free -m | head -2; lscpu | grep -i 'model name'; node -v; java -version 2>&1 | head -1
+      - name: Install packages
+        run: npm ci --no-audit --no-fund
+      - name: Versions in use
+        run: npx e2e --version; node -p "require('@e2e-dev/mobile/package.json').version"; node -p "require('@keepsnappy/react-native/package.json').version"
+      - name: Enable KVM for the emulator
+        working-directory: .
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build the Release APK (x86_64) with the SDK
+        env:
+          # Push mode: the Android app sends its data to the API itself, so the build carries the ingest URL and key.
+          # The APK stays on this runner (it is never uploaded as an artifact).
+          EXPO_PUBLIC_KEEPSNAPPY_INGEST_URL: ${{ inputs.upload && vars.KEEPSNAPPY_API || '' }}
+          EXPO_PUBLIC_KEEPSNAPPY_KEY: ${{ inputs.upload && secrets.KEEPSNAPPY_KEY || '' }}
+        run: |
+          set -euo pipefail
+          t0=$(date +%s)
+          npx expo prebuild --platform android --no-install
+          (cd android && ./gradlew --no-daemon -Dorg.gradle.jvmargs=-Xmx4g -PreactNativeArchitectures=x86_64 assembleRelease | tail -5)
+          APK=$(ls "$PWD"/android/app/build/outputs/apk/release/*.apk | head -1)
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+          echo "build took $(( $(date +%s) - t0 )) s"
+      - name: Install the keepsnappy CLI
+        run: npm install -g "$KEEPSNAPPY_CLI" && keepsnappy --help | head -3
+      - name: Emulator session
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          KEEPSNAPPY_KEY: ${{ inputs.upload && secrets.KEEPSNAPPY_KEY || '' }}
+          KEEPSNAPPY_API: ${{ inputs.upload && vars.KEEPSNAPPY_API || '' }}
+          UPLOAD: ${{ inputs.upload }}
+          REPEAT: ${{ inputs.repeat }}
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          profile: pixel_7
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
+          disable-animations: true
+          working-directory: app
+          script: bash ../scripts/android-job.sh
+      - name: Spread inside the session
+        if: ${{ always() }}
+        run: |
+          test -f keepsnappy-out/runs.ndjson || exit 0
+          node -e '
+            const rs = require("fs").readFileSync("keepsnappy-out/runs.ndjson","utf8").split("\n").filter(Boolean).map(JSON.parse);
+            const md = ["### android ${{ github.ref_name }} run ${{ github.run_id }}", "", "| run | test s | flush s | valid |", "|---|---|---|---|",
+              ...rs.map(r => `| ${r.run_id} | ${((r.t1-r.t0)/1000).toFixed(1)} | ${(r.flush_ms/1000).toFixed(1)} | ${r.valid}${r.invalid_reason ? " (" + r.invalid_reason + ")" : ""} |`)];
+            console.log(md.join("\n"));
+          ' | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Keep the raw results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-keepsnappy-out
+          path: |
+            app/keepsnappy-out
+            !app/keepsnappy-out/tokens.js
+          retention-days: 30
+          if-no-files-found: ignore

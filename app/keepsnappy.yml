@@ -1,0 +1,14 @@
+# Wraps TesterArmy's own e2e command. The journey is the example's three deterministic tests.
+project:
+  key_env: KEEPSNAPPY_KEY        # CI secret, never in this file
+app:
+  bundle_id: dev.e2e.examples.expo
+platform: ios-sim
+device: booted
+repetitions: 3
+flows:
+  runner: command
+  command: ["bash", "../scripts/run-e2e-no-ai.sh", "ios"]
+output:
+  dir: keepsnappy-out
+timeout_seconds: 900
