@@ -61,6 +61,7 @@ try {
     const id = String(i).padStart(3, '0') + '-A';
     const dir = join(out, id);
     mkdirSync(dir, { recursive: true });
+    adb('logcat', '-c');
     sh(`am force-stop ${a.pkg}`);
     if (tokens) {
       // Activation takes effect from the next launch: send the link, then stop the process, so the test's own launch is the measured one.
@@ -74,7 +75,6 @@ try {
     const t1 = Date.now();
     let flushed = 'not-sent';
     if (tokens) {
-      adb('logcat', '-c');
       sh(`am start -a android.intent.action.VIEW -d ${q(`${route}?flush=1&activate=0&ack=${i}`)} ${a.pkg}`);
       const deadline = Date.now() + 340_000;
       flushed = 'not acknowledged';
@@ -85,6 +85,10 @@ try {
       }
     }
     const t2 = Date.now();
+    // The SDK's own lines for this iteration (activation, push, flush), kept with the run and printed: the proof of what the app did.
+    const sdkLines = adb('logcat', '-d').split('\n').filter((l) => /KEEPSNAPPY/i.test(l)).map((l) => l.replace(/runToken=\S+|pl_rt_\w+/g, 'runToken=<hidden>'));
+    writeFileSync(join(dir, 'sdk-logcat.txt'), sdkLines.join('\n') + '\n');
+    log(`${id} SDK lines: ${sdkLines.length}\n${sdkLines.slice(-25).join('\n')}`);
     const valid = exit === 0 && (!tokens || flushed === 'ok');
     const reason = exit !== 0 ? `test-failed: exit ${exit}` : tokens && flushed !== 'ok' ? `flush: ${flushed}` : '';
     runs.push({ run_id: id, arm: 'A', block: i - 1, t0, t1, exit_code: exit, valid, invalid_reason: reason, flushed, flush_ms: t2 - t1 });
