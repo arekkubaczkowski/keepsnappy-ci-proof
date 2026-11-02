@@ -11,6 +11,27 @@ A scratch repository for one question: **can a KeepSnappy verdict be trusted whe
   - **ios**: `macos-latest`, an iPhone simulator, a Release build. `keepsnappy run --upload --wait -- …` (the command is in `app/keepsnappy.yml`).
   - **android**: `ubuntu-latest` with KVM, an x86_64 Android emulator (`reactivecircus/android-emulator-runner`), a Release build. The CLI has no Android emulator path in `keepsnappy run` yet, so `scripts/android-session.mjs` does what the CLI's farm mode does: open a run set, activate the SDK per run with a link, run TesterArmy's command, flush, close the run set.
 
+## Result (2 November 2026)
+
+**Short version:** on free GitHub runners the whole path works for both iOS and Android, and the identical-build ("A/A") session on each platform came back as "No change", not as a false "Worse". That is one sample per platform, so it is encouraging, not proof of a low false-alarm rate.
+
+- **8 sessions, 24 of 24 runs valid.** Per platform: 3 main sessions and 1 A/A session, 3 runs each.
+- **iOS:** `macos-latest`, iPhone 17 Pro simulator, iOS 26.5. Sessions: [main 1](https://github.com/arekkubaczkowski/keepsnappy-ci-proof/actions/runs/41410597039), [main 2](https://github.com/arekkubaczkowski/keepsnappy-ci-proof/actions/runs/41410606657), [main 3](https://github.com/arekkubaczkowski/keepsnappy-ci-proof/actions/runs/41410615978), [A/A](https://github.com/arekkubaczkowski/keepsnappy-ci-proof/actions/runs/41417432690). Whole jobs took 9.5–20.4 minutes; one test run took 26–78 seconds.
+- **Android:** `ubuntu-latest` with KVM, Android 16 emulator (x86_64, software GPU). Sessions: [main 1](https://github.com/arekkubaczkowski/keepsnappy-ci-proof/actions/runs/41417343200), [main 2](https://github.com/arekkubaczkowski/keepsnappy-ci-proof/actions/runs/41417353509), [main 3](https://github.com/arekkubaczkowski/keepsnappy-ci-proof/actions/runs/41417364226), [A/A](https://github.com/arekkubaczkowski/keepsnappy-ci-proof/actions/runs/41420250448). Whole jobs took 9.5–12.9 minutes; one test run took 12.5–32.5 seconds.
+- **Verdicts.** Both A/A sessions: **No change**, computed about 2.5 minutes after each session closed. The six main sessions: **Can't tell**, because a main session is compared with the three before it and these had 0, 1 and 2. That is the expected warm-up; a fourth main session per platform would get a real comparison.
+- **Spread on iOS** (three runs of one session): touch response varied by 22.6–37.9 % (coefficient of variation) and the longest frame gap by 17.8–50.6 %. Single runs on a shared runner are noisy, which is why a verdict needs several runs.
+- **Spread on Android is unknown.** The Android sessions upload their data but their output has no per-run metrics file, so the spread could not be computed. That is a gap in what the job saves, not a sign of zero noise. It matters because the spread decides how often a customer would see "Can't tell" or a false "Worse".
+
+### A note on `--wait`
+
+The job logs and result files in the iOS runs say `Verdict not computed yet`. That is not a missing verdict: the published `keepsnappy run --wait` returns when the runs are processed, and the judge computes the verdict about three minutes later. The saved file is never updated. Making `--wait` wait for the verdict is a fix in progress on the KeepSnappy side; until then, read the verdict from KeepSnappy a few minutes after the job.
+
+### What this shows, and what it does not
+
+- Shows: the engine, the SDK, the upload and the judge work together on a free iOS runner and a free Android emulator; an identical build was not called worse on either.
+- Does not show: a false-alarm rate (that needs several A/A sessions per platform); that a real slowdown is caught (no deliberate slowdown was tested); how noisy Android is; or a main-to-main comparison.
+- Next, all on free runners: more A/A sessions, a fourth main session, saving Android's per-run metrics, and a session with a deliberate slowdown.
+
 ## What it measures
 
 For each platform, 3 "main" sessions and 1 "A/A" session of 3 runs each:
@@ -34,7 +55,7 @@ The AI rule: `scripts/run-e2e-no-ai.sh` runs `e2e run --retries 0 --strict-cache
 ## What it does NOT prove
 
 - It says nothing about your app. The example is a one-screen greeting form: a short journey, so few measured windows.
-- It does not show that a free runner is as quiet as a quiet Mac. It shows how noisy these runners were on the days we ran them. Shared runners vary by hour and by day.
+- It does not show that a free runner is as quiet as a quiet Mac. It shows how noisy these runners were on the days we ran them (2 November 2026, the iOS spread above). Shared runners vary by hour and by day.
 - It does not cover real phones, a physical device farm, or TesterArmy's AI steps (those are refused).
 - Android runs on a software-rendered emulator without a GPU. The spread there says nothing about a real Android phone.
 - A handful of sessions is a handful of sessions: it is evidence for or against a verdict being usable, not a calibration.
