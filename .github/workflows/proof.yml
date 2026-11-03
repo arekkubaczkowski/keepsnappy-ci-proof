@@ -36,6 +36,7 @@ env:
   NODE_VERSION: '24'
   # The KeepSnappy build switch: without it the build carries no SDK.
   KEEPSNAPPY: '1'
+  KEEPSNAPPY_NOTIFY: 'off'
   E2E_TELEMETRY_DISABLED: '1'
 
 jobs:
